@@ -13,7 +13,8 @@
 };
 
 export function hasExternalLlmConfig() {
-  return !config.mockMode && Boolean(config.openAiApiKey);
+  const key = config.openAiApiKey?.trim();
+  return !config.mockMode && Boolean(key);
 }
 
 export function hasQdrantConfig() {
