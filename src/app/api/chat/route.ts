@@ -1,24 +1,61 @@
-import { randomUUID } from "crypto";
-import { NextResponse } from "next/server";
+﻿import { randomUUID } from "crypto";
+import { z } from "zod";
 import { appendTurn, ensureSession, getSessionTurns } from "@/lib/memory-store";
 import { generateDeveloperResponse } from "@/lib/llm";
 import { retrieveRelevantContext } from "@/lib/rag";
+import { checkRateLimit, getRequestMeta, jsonResponse, logApiError } from "@/lib/api";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
-  try {
-    const payload = (await request.json()) as {
-      message?: string;
-      sessionId?: string;
-    };
+const ChatPayloadSchema = z.object({
+  message: z.string().trim().min(1, "Message is required.").max(4000, "Message is too long."),
+  sessionId: z.string().trim().max(128).optional(),
+});
 
-    const message = payload.message?.trim();
-    if (!message) {
-      return NextResponse.json({ error: "Message is required." }, { status: 400 });
+export async function POST(request: Request) {
+  const meta = getRequestMeta(request, "api/chat");
+
+  const limiter = checkRateLimit({
+    key: `chat:${meta.ip}`,
+    limit: 30,
+    windowMs: 60_000,
+  });
+
+  if (!limiter.allowed) {
+    return jsonResponse(
+      {
+        error: "Rate limit exceeded. Please retry shortly.",
+        requestId: meta.requestId,
+      },
+      { status: 429, requestId: meta.requestId, headers: limiter.headers }
+    );
+  }
+
+  try {
+    let rawPayload: unknown;
+    try {
+      rawPayload = await request.json();
+    } catch {
+      return jsonResponse(
+        { error: "Invalid JSON payload.", requestId: meta.requestId },
+        { status: 400, requestId: meta.requestId, headers: limiter.headers }
+      );
     }
 
-    const session = ensureSession(payload.sessionId, message);
+    const parsed = ChatPayloadSchema.safeParse(rawPayload);
+    if (!parsed.success) {
+      return jsonResponse(
+        {
+          error: parsed.error.issues[0]?.message ?? "Invalid request payload.",
+          requestId: meta.requestId,
+        },
+        { status: 400, requestId: meta.requestId, headers: limiter.headers }
+      );
+    }
+
+    const { message, sessionId } = parsed.data;
+    const session = ensureSession(sessionId, message);
+
     const userTurn = {
       id: randomUUID(),
       role: "user" as const,
@@ -43,19 +80,24 @@ export async function POST(request: Request) {
     };
     appendTurn(session.id, assistantTurn);
 
-    return NextResponse.json({
-      sessionId: session.id,
-      answer: response.answer,
-      suggestions: response.suggestions,
-      contexts,
-    });
+    return jsonResponse(
+      {
+        requestId: meta.requestId,
+        sessionId: session.id,
+        answer: response.answer,
+        suggestions: response.suggestions,
+        contexts,
+      },
+      { requestId: meta.requestId, headers: limiter.headers }
+    );
   } catch (error) {
-    return NextResponse.json(
+    logApiError({ requestId: meta.requestId, route: meta.route, error });
+    return jsonResponse(
       {
         error: "Failed to process chat request.",
-        details: error instanceof Error ? error.message : "Unknown error",
+        requestId: meta.requestId,
       },
-      { status: 500 }
+      { status: 500, requestId: meta.requestId, headers: limiter.headers }
     );
   }
 }
