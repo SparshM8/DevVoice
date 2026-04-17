@@ -1,0 +1,44 @@
+{
+  "prompts": [
+    {
+      "category": "React Debugging",
+      "text": "Why is my React useEffect causing repeated renders when I fetch data?",
+      "context": "Common when effect updates state in its dependency list"
+    },
+    {
+      "category": "Stack Trace Analysis",
+      "text": "Analyze this error and suggest the fastest fix: TypeError: Cannot read property 'email' of null at login.js:42",
+      "context": "Likely null check missing before property access"
+    },
+    {
+      "category": "API Error Handling",
+      "text": "My API returns 429 Too Many Requests. How should I handle retries?",
+      "context": "Use exponential backoff with jitter"
+    },
+    {
+      "category": "TypeScript Issues",
+      "text": "Type error: Type 'string | null' is not assignable to type 'string'. How do I fix this?",
+      "context": "Need to add null guard or type narrowing"
+    },
+    {
+      "category": "Terminal Errors",
+      "text": "What does EADDRINUSE mean and how do I fix 'Address already in use' error?",
+      "context": "Port is bound, need to find and kill existing process"
+    },
+    {
+      "category": "Performance",
+      "text": "My React component is re-rendering too often. How do I optimize it?",
+      "context": "Use React.memo, useMemo, useCallback patterns"
+    },
+    {
+      "category": "Async Patterns",
+      "text": "Explain the difference between async/await and promises. When should I use each?",
+      "context": "Async/await is syntactic sugar, both work with promises"
+    },
+    {
+      "category": "Database",
+      "text": "I'm getting ECONNREFUSED connecting to my database. What's wrong?",
+      "context": "Service not running on expected host/port, check connection string"
+    }
+  ]
+}
