@@ -6,19 +6,19 @@ const config: Config = {
     extend: {
       colors: {
         ink: {
-          950: "#080b14",
-          900: "#101525",
-          800: "#1a2238",
-          700: "#263150"
+          950: "#000000",
+          900: "#0A0A0A",
+          800: "#111111",
+          700: "#222222"
         },
         neon: {
-          cyan: "#26d9ff",
-          mint: "#57f0ba",
-          amber: "#ffc36f"
+          cyan: "#00e5ff",
+          mint: "#3291ff",
+          amber: "#ffcc00"
         }
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(38,217,255,0.3), 0 10px 45px rgba(5,12,34,0.55)"
+        glow: "0 0 0 1px rgba(255,255,255,0.08), 0 8px 30px rgba(0,0,0,0.5)"
       },
       animation: {
         "pulse-soft": "pulseSoft 1.8s ease-in-out infinite",

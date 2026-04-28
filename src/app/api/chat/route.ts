@@ -1,7 +1,7 @@
-﻿import { randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { appendTurn, ensureSession, getSessionTurns } from "@/lib/memory-store";
-import { generateDeveloperResponse } from "@/lib/llm";
+import { generateDeveloperResponseStream } from "@/lib/llm";
 import { retrieveRelevantContext } from "@/lib/rag";
 import { checkRateLimit, getRequestMeta, jsonResponse, logApiError } from "@/lib/api";
 
@@ -66,30 +66,63 @@ export async function POST(request: Request) {
 
     const contexts = await retrieveRelevantContext(message);
     const history = getSessionTurns(session.id);
-    const response = await generateDeveloperResponse({
-      message,
-      history,
-      context: contexts,
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        // Send initial metadata
+        const metadata = {
+          sessionId: session.id,
+          contexts,
+          suggestions: [] as string[],
+        };
+        controller.enqueue(encoder.encode(`event: metadata\ndata: ${JSON.stringify(metadata)}\n\n`));
+
+        let fullAnswer = "";
+        try {
+          const generator = generateDeveloperResponseStream({ message, history, context: contexts });
+          while (true) {
+            const { value, done } = await generator.next();
+            if (done) {
+              if (value && value.suggestions) {
+                controller.enqueue(encoder.encode(`event: suggestions\ndata: ${JSON.stringify(value.suggestions)}\n\n`));
+              }
+              break;
+            }
+            if (value) {
+              if (typeof value === "object" && value.type === "action") {
+                controller.enqueue(encoder.encode(`event: action\ndata: ${JSON.stringify(value.message)}\n\n`));
+              } else if (typeof value === "string") {
+                fullAnswer += value;
+                controller.enqueue(encoder.encode(`event: text\ndata: ${JSON.stringify(value)}\n\n`));
+              }
+            }
+          }
+        } catch (err) {
+          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify(err instanceof Error ? err.message : "Error")}\n\n`));
+        }
+
+        const assistantTurn = {
+          id: randomUUID(),
+          role: "assistant" as const,
+          content: fullAnswer,
+          createdAt: new Date().toISOString(),
+        };
+        appendTurn(session.id, assistantTurn);
+
+        controller.enqueue(encoder.encode(`event: end\ndata: {}\n\n`));
+        controller.close();
+      },
     });
 
-    const assistantTurn = {
-      id: randomUUID(),
-      role: "assistant" as const,
-      content: response.answer,
-      createdAt: new Date().toISOString(),
-    };
-    appendTurn(session.id, assistantTurn);
-
-    return jsonResponse(
-      {
-        requestId: meta.requestId,
-        sessionId: session.id,
-        answer: response.answer,
-        suggestions: response.suggestions,
-        contexts,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        ...limiter.headers,
       },
-      { requestId: meta.requestId, headers: limiter.headers }
-    );
+    });
   } catch (error) {
     logApiError({ requestId: meta.requestId, route: meta.route, error });
     return jsonResponse(

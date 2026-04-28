@@ -169,44 +169,115 @@ export function DevVoiceConsole() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, sessionId }),
       });
-      const data = await response.json();
+      
       if (!response.ok) {
-        throw new Error(data.error ?? "Chat failed.");
+        let errorMsg = "Chat failed.";
+        try {
+          const data = await response.json();
+          errorMsg = data.error ?? errorMsg;
+        } catch {}
+        throw new Error(errorMsg);
+      }
+
+      if (!response.body) throw new Error("No response body.");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      let done = false;
+      let buffer = "";
+      let currentEvent = "";
+
+      const assistantTurnId = makeId();
+      let currentAssistantText = "";
+      let newSessionId = sessionId;
+      let newContexts: RetrievedChunk[] = [];
+      let newActions: string[] = [];
+
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: assistantTurnId,
+          role: "assistant",
+          content: "",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      while (!done) {
+        const { value, done: isDone } = await reader.read();
+        done = isDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("event: ")) {
+              currentEvent = trimmed.substring(7).trim();
+            } else if (trimmed.startsWith("data: ")) {
+              if (currentEvent === "end") continue;
+              const dataStr = trimmed.substring(6);
+              try {
+                const json = JSON.parse(dataStr);
+                if (currentEvent === "metadata") {
+                  newSessionId = json.sessionId;
+                  setSessionId(newSessionId);
+                  newContexts = json.contexts;
+                  setContexts(newContexts);
+                  if (json.suggestions) {
+                    newActions = json.suggestions;
+                    setActions(newActions);
+                  }
+                } else if (currentEvent === "text") {
+                  currentAssistantText += json;
+                  setTurns((prev) =>
+                    prev.map((turn) => (turn.id === assistantTurnId ? { ...turn, content: currentAssistantText } : turn))
+                  );
+                } else if (currentEvent === "action") {
+                  currentAssistantText += `\n> ${json}\n`;
+                  setTurns((prev) =>
+                    prev.map((turn) => (turn.id === assistantTurnId ? { ...turn, content: currentAssistantText } : turn))
+                  );
+                } else if (currentEvent === "suggestions") {
+                  newActions = json;
+                  setActions(newActions);
+                } else if (currentEvent === "error") {
+                  throw new Error(json);
+                }
+              } catch (e) {
+                if (currentEvent === "error") throw new Error(dataStr);
+              }
+            }
+          }
+        }
       }
 
       const assistantTurn: ChatTurn = {
-        id: makeId(),
+        id: assistantTurnId,
         role: "assistant",
-        content: data.answer,
+        content: currentAssistantText,
         createdAt: new Date().toISOString(),
       };
 
-      const resolvedContexts: RetrievedChunk[] = data.contexts ?? [];
-      const resolvedActions: string[] = data.suggestions ?? [];
-
-      setSessionId(data.sessionId);
-      setTurns((prev) => [...prev, assistantTurn]);
-      setContexts(resolvedContexts);
-      setActions(resolvedActions);
-
       const localSessions = getAllSessionsLocally();
-      const existingSession = localSessions.find((session) => session.id === data.sessionId);
+      const existingSession = localSessions.find((session) => session.id === newSessionId);
       const existingTurns = existingSession?.turns ?? [];
 
       const sessionForStorage: SessionRecord = {
-        id: data.sessionId,
+        id: newSessionId!,
         title: existingSession?.title ?? inferTitle(message),
         createdAt: existingSession?.createdAt ?? userTurn.createdAt,
         updatedAt: new Date().toISOString(),
         turns: [...existingTurns, userTurn, assistantTurn],
-        lastContexts: resolvedContexts,
-        lastSuggestions: resolvedActions,
+        lastContexts: newContexts,
+        lastSuggestions: newActions,
       };
       saveSessionLocally(sessionForStorage);
       refreshSavedSessions();
 
       speakText(
-        data.answer,
+        currentAssistantText,
         () => setSpeaking(true),
         () => setSpeaking(false)
       );
@@ -310,8 +381,8 @@ export function DevVoiceConsole() {
       <section className="glass rounded-2xl p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-white">Developer Voice Console</h1>
-            <p className="mt-1 text-sm text-slate-300">
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">Developer Voice Console</h1>
+            <p className="mt-1 text-sm text-zinc-400">
               Explain code, debug issues, summarize docs, and generate fixes with contextual recall.
             </p>
           </div>
@@ -322,58 +393,58 @@ export function DevVoiceConsole() {
           <button
             type="button"
             onClick={resumeLastSession}
-            className="rounded-xl border border-ink-700 bg-ink-900/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:border-neon-cyan/60 hover:text-white"
+            className="rounded-lg border border-ink-800 bg-ink-900 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:bg-ink-800 hover:text-zinc-100"
           >
             Resume Last Session
           </button>
           <button
             type="button"
             onClick={startNewSession}
-            className="rounded-xl border border-ink-700 bg-ink-900/80 px-3 py-2 text-xs font-medium text-slate-200 transition hover:border-neon-mint/60 hover:text-white"
+            className="rounded-lg border border-ink-800 bg-ink-900 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:bg-ink-800 hover:text-zinc-100"
           >
             Start New Session
           </button>
           <button
             type="button"
             onClick={clearLocalData}
-            className="rounded-xl border border-red-900/70 bg-red-950/40 px-3 py-2 text-xs font-medium text-red-200 transition hover:border-red-700 hover:text-red-100"
+            className="rounded-lg border border-red-900/50 bg-red-950/20 px-3 py-2 text-xs font-medium text-red-400 transition hover:border-red-800 hover:bg-red-950/40 hover:text-red-300"
           >
             Clear Local Sessions ({localSessionCount})
           </button>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-ink-700 bg-ink-950/50 p-4">
+        <div className="mt-4 rounded-xl border border-ink-800 bg-black p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Saved Sessions</p>
-              <p className="mt-1 text-sm text-slate-200">{selectedSessionLabel}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Saved Sessions</p>
+              <p className="mt-1 text-sm font-medium text-zinc-200">{selectedSessionLabel}</p>
             </div>
             <button
               type="button"
               onClick={refreshSavedSessions}
-              className="rounded-lg border border-ink-700 px-3 py-2 text-xs text-slate-300 transition hover:border-neon-cyan/60 hover:text-white"
+              className="rounded-md border border-ink-800 px-3 py-1.5 text-xs text-zinc-400 transition hover:bg-ink-900 hover:text-zinc-200"
             >
               Refresh List
             </button>
           </div>
-          <div className="mt-3 flex flex-col gap-3">
+          <div className="mt-4 flex flex-col gap-3">
             <input
               value={sessionFilter}
               onChange={(event) => setSessionFilter(event.target.value)}
               placeholder="Filter sessions by title or content..."
-              className="w-full rounded-xl border border-ink-700 bg-ink-900/80 px-4 py-2 text-sm text-slate-100 outline-none focus:border-neon-cyan/50"
+              className="w-full rounded-lg border border-ink-800 bg-ink-900 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500 focus:bg-ink-800"
             />
             <div className="flex flex-wrap gap-2">
               {filteredSessions.length === 0 ? (
                 <span className="text-sm text-slate-400">No matching sessions.</span>
               ) : (
                 filteredSessions.map((session) => (
-                  <div
+                    <div
                     key={session.id}
-                    className={`flex items-center gap-2 rounded-full border px-2 py-2 ${
+                    className={`flex items-center gap-2 rounded-full border px-2 py-1.5 ${
                       session.id === sessionId
-                        ? "border-neon-cyan bg-neon-cyan/15"
-                        : "border-ink-700 bg-ink-900/80"
+                        ? "border-zinc-500 bg-zinc-800/50"
+                        : "border-ink-800 bg-ink-900/50"
                     }`}
                   >
                     <button
@@ -381,8 +452,8 @@ export function DevVoiceConsole() {
                       onClick={() => selectSession(session)}
                       className={`rounded-full px-2 py-0.5 text-xs transition ${
                         session.id === sessionId
-                          ? "text-neon-cyan"
-                          : "text-slate-300 hover:text-white"
+                          ? "font-medium text-zinc-100"
+                          : "text-zinc-400 hover:text-zinc-200"
                       }`}
                     >
                       {session.title}
@@ -390,7 +461,7 @@ export function DevVoiceConsole() {
                     <button
                       type="button"
                       onClick={() => duplicateSavedSession(session.id)}
-                      className="rounded-full border border-amber-700/60 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-200 transition hover:border-amber-500 hover:text-amber-100"
+                      className="rounded-full border border-ink-800 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
                       aria-label={`Duplicate session ${session.title}`}
                     >
                       Duplicate
@@ -398,7 +469,7 @@ export function DevVoiceConsole() {
                     <button
                       type="button"
                       onClick={() => deleteSavedSession(session.id)}
-                      className="rounded-full border border-red-900/60 px-2 py-0.5 text-[10px] uppercase tracking-wide text-red-200 transition hover:border-red-700 hover:text-red-100"
+                      className="rounded-full border border-red-900/50 px-2 py-0.5 text-[10px] uppercase tracking-wide text-red-400 transition hover:border-red-800 hover:text-red-300"
                       aria-label={`Delete session ${session.title}`}
                     >
                       Delete
@@ -410,17 +481,17 @@ export function DevVoiceConsole() {
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3 sm:flex-row">
           <input
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder="Ask a technical question or paste logs/stack trace..."
-            className="w-full rounded-xl border border-ink-700 bg-ink-900/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-neon-cyan/50"
+            className="w-full rounded-lg border border-ink-800 bg-ink-900 px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-zinc-500 focus:bg-ink-800"
           />
           <button
             type="submit"
             disabled={thinking}
-            className="rounded-xl bg-neon-cyan px-5 py-3 font-medium text-ink-950 transition hover:bg-cyan-300 disabled:opacity-60"
+            className="rounded-lg bg-zinc-100 px-6 py-3 text-sm font-semibold text-black transition-colors hover:bg-white disabled:opacity-60"
           >
             {thinking ? "Thinking..." : "Send"}
           </button>

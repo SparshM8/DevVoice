@@ -99,11 +99,18 @@ export async function searchContext(params: {
     return localResults;
   }
 
-  const remote = await client.search(config.qdrantCollection, {
-    vector: params.vector,
-    limit: params.limit,
-    with_payload: true,
-  });
+  await ensureCollection(params.vector.length);
+
+  let remote: Awaited<ReturnType<typeof client.search>>;
+  try {
+    remote = await client.search(config.qdrantCollection, {
+      vector: params.vector,
+      limit: params.limit,
+      with_payload: true,
+    });
+  } catch {
+    return localResults;
+  }
 
   if (remote.length === 0) {
     return localResults;

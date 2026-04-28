@@ -29,17 +29,22 @@ export async function embedText(text: string): Promise<number[]> {
     return localEmbed(text);
   }
 
-  const response = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.openAiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.embeddingsModel,
-      input: text,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.openAiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.embeddingsModel,
+        input: text,
+      }),
+    });
+  } catch {
+    return localEmbed(text);
+  }
 
   if (!response.ok) {
     return localEmbed(text);
