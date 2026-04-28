@@ -20,8 +20,8 @@ type RecognitionCtor = new () => {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: (() => void) | null;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event?: any) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
