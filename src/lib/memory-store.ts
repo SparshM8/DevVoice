@@ -1,7 +1,11 @@
 import { randomUUID } from "crypto";
 import { ChatTurn, SessionRecord, SessionSummary } from "@/lib/types";
 
-const sessions = new Map<string, SessionRecord & { visitorId: string }>();
+export const SERVER_SESSION_TTL_MS = 6 * 60 * 60_000;
+export const MAX_SERVER_SESSIONS = 500;
+
+type ServerSession = SessionRecord & { visitorId: string };
+const sessions = new Map<string, ServerSession>();
 
 function inferTitle(input: string): string {
   const compact = input.replace(/\s+/g, " ").trim();
@@ -9,15 +13,31 @@ function inferTitle(input: string): string {
   return compact.length > 48 ? `${compact.slice(0, 48)}...` : compact;
 }
 
+function pruneExpiredSessions(now = Date.now()) {
+  for (const [sessionId, session] of sessions) {
+    if (now - Date.parse(session.updatedAt) >= SERVER_SESSION_TTL_MS) {
+      sessions.delete(sessionId);
+    }
+  }
+}
+
+function evictOldestSessionIfNeeded() {
+  if (sessions.size < MAX_SERVER_SESSIONS) return;
+  const oldest = [...sessions.values()].sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))[0];
+  if (oldest) sessions.delete(oldest.id);
+}
+
 export function ensureSession(visitorId: string, sessionId?: string, seedText?: string): SessionRecord {
+  pruneExpiredSessions();
   const existing = sessionId ? sessions.get(sessionId) : undefined;
   if (existing && existing.visitorId === visitorId) {
     return existing;
   }
 
+  evictOldestSessionIfNeeded();
   const id = randomUUID();
   const now = new Date().toISOString();
-  const session: SessionRecord & { visitorId: string } = {
+  const session: ServerSession = {
     id,
     visitorId,
     title: inferTitle(seedText ?? ""),
@@ -30,6 +50,7 @@ export function ensureSession(visitorId: string, sessionId?: string, seedText?: 
 }
 
 export function appendTurn(visitorId: string, sessionId: string, turn: ChatTurn) {
+  pruneExpiredSessions();
   const session = sessions.get(sessionId);
   if (!session || session.visitorId !== visitorId) return false;
   session.turns.push(turn);
@@ -38,6 +59,7 @@ export function appendTurn(visitorId: string, sessionId: string, turn: ChatTurn)
 }
 
 export function listSessionSummaries(visitorId: string): SessionSummary[] {
+  pruneExpiredSessions();
   return [...sessions.values()]
     .filter((session) => session.visitorId === visitorId)
     .map((session) => {
@@ -55,6 +77,7 @@ export function listSessionSummaries(visitorId: string): SessionSummary[] {
 }
 
 export function getSessionTurns(visitorId: string, sessionId: string): ChatTurn[] {
+  pruneExpiredSessions();
   const session = sessions.get(sessionId);
   return session?.visitorId === visitorId ? session.turns : [];
 }
