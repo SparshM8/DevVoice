@@ -5,9 +5,12 @@ export async function parseFileContent(file: File): Promise<{ text: string; type
   const extension = name.split(".").pop() ?? "txt";
 
   if (extension === "pdf") {
-    const { PDFParse } = await import("pdf-parse");
+    const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
+      import("pdf-parse"),
+      import("pdf-parse/worker"),
+    ]);
     const buffer = Buffer.from(await file.arrayBuffer());
-    const parser = new PDFParse({ data: buffer });
+    const parser = new PDFParse({ data: buffer, CanvasFactory });
     const parsed = await parser.getText();
     await parser.destroy();
     return { text: parsed.text, type: "pdf" };
