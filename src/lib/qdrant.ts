@@ -7,6 +7,7 @@ type PointPayload = {
   text: string;
   source: string;
   type: string;
+  visitorId: string;
 };
 
 type LocalPoint = {
@@ -49,6 +50,7 @@ export async function upsertContextPoint(params: {
   text: string;
   source: string;
   type: string;
+  visitorId: string;
 }) {
   const point: LocalPoint = {
     id: params.id,
@@ -57,33 +59,41 @@ export async function upsertContextPoint(params: {
       text: params.text,
       source: params.source,
       type: params.type,
+      visitorId: params.visitorId,
     },
   };
 
-  const existing = localStore.findIndex((item) => item.id === point.id);
-  if (existing >= 0) localStore.splice(existing, 1);
-  localStore.push(point);
+  const existing = localStore.findIndex((item) => item.id === point.id && item.payload.visitorId === point.payload.visitorId);
+  if (existing >= 0) {
+    localStore[existing] = point;
+  } else {
+    localStore.push(point);
+  }
 
   const client = getClient();
-  if (!client) return;
+  if (client) {
+    await client.upsert(config.qdrantCollection, {
+      wait: true,
+      points: [
+        {
+          id: params.id,
+          vector: params.vector,
+          payload: point.payload,
+        },
+      ],
+    });
+  }
 
-  await client.upsert(config.qdrantCollection, {
-    wait: true,
-    points: [
-      {
-        id: params.id,
-        vector: params.vector,
-        payload: point.payload,
-      },
-    ],
-  });
+  return { created: existing < 0 };
 }
 
 export async function searchContext(params: {
   vector: number[];
   limit: number;
+  visitorId: string;
 }): Promise<RetrievedChunk[]> {
   const localResults = localStore
+    .filter((point) => point.payload.visitorId === params.visitorId)
     .map((point) => ({
       id: point.id,
       text: point.payload.text,
@@ -107,6 +117,9 @@ export async function searchContext(params: {
       vector: params.vector,
       limit: params.limit,
       with_payload: true,
+      filter: {
+        must: [{ key: "visitorId", match: { value: params.visitorId } }],
+      },
     });
   } catch {
     return localResults;

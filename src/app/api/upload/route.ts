@@ -20,7 +20,7 @@ export async function POST(request: Request) {
         error: "Upload rate limit exceeded. Please retry later.",
         requestId: meta.requestId,
       },
-      { status: 429, requestId: meta.requestId, headers: limiter.headers }
+      { status: 429, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     if (!(file instanceof File)) {
       return jsonResponse(
         { error: "No file provided.", requestId: meta.requestId },
-        { status: 400, requestId: meta.requestId, headers: limiter.headers }
+        { status: 400, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
       );
     }
 
@@ -48,15 +48,17 @@ export async function POST(request: Request) {
       source: file.name,
       type: parsed.type,
       text: parsed.text,
+      visitorId: meta.visitorId,
     });
 
     return jsonResponse(
       {
         requestId: meta.requestId,
         fileName: file.name,
-        chunksStored: result.chunksStored,
+        chunksStored: result.chunksCreated,
+        chunksRequested: result.chunksStored,
       },
-      { requestId: meta.requestId, headers: limiter.headers }
+      { requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   } catch (error) {
     logApiError({ requestId: meta.requestId, route: meta.route, error });
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
         error: "Failed to upload or index file.",
         requestId: meta.requestId,
       },
-      { status: 500, requestId: meta.requestId, headers: limiter.headers }
+      { status: 500, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 }

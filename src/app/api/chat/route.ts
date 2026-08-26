@@ -27,7 +27,7 @@ export async function POST(request: Request) {
         error: "Rate limit exceeded. Please retry shortly.",
         requestId: meta.requestId,
       },
-      { status: 429, requestId: meta.requestId, headers: limiter.headers }
+      { status: 429, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     } catch {
       return jsonResponse(
         { error: "Invalid JSON payload.", requestId: meta.requestId },
-        { status: 400, requestId: meta.requestId, headers: limiter.headers }
+        { status: 400, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
       );
     }
 
@@ -49,12 +49,12 @@ export async function POST(request: Request) {
           error: parsed.error.issues[0]?.message ?? "Invalid request payload.",
           requestId: meta.requestId,
         },
-        { status: 400, requestId: meta.requestId, headers: limiter.headers }
+        { status: 400, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
       );
     }
 
     const { message, sessionId } = parsed.data;
-    const session = ensureSession(sessionId, message);
+    const session = ensureSession(meta.visitorId, sessionId, message);
 
     const userTurn = {
       id: randomUUID(),
@@ -62,10 +62,10 @@ export async function POST(request: Request) {
       content: message,
       createdAt: new Date().toISOString(),
     };
-    appendTurn(session.id, userTurn);
+    appendTurn(meta.visitorId, session.id, userTurn);
 
-    const contexts = await retrieveRelevantContext(message);
-    const history = getSessionTurns(session.id);
+    const contexts = await retrieveRelevantContext(message, meta.visitorId);
+    const history = getSessionTurns(meta.visitorId, session.id);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
           content: fullAnswer,
           createdAt: new Date().toISOString(),
         };
-        appendTurn(session.id, assistantTurn);
+        appendTurn(meta.visitorId, session.id, assistantTurn);
 
         controller.enqueue(encoder.encode(`event: end\ndata: {}\n\n`));
         controller.close();
@@ -121,6 +121,7 @@ export async function POST(request: Request) {
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
         ...limiter.headers,
+        ...(meta.visitorCookie ? { "Set-Cookie": meta.visitorCookie } : {}),
       },
     });
   } catch (error) {
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
         error: "Failed to process chat request.",
         requestId: meta.requestId,
       },
-      { status: 500, requestId: meta.requestId, headers: limiter.headers }
+      { status: 500, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 }

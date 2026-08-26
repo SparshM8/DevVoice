@@ -11,7 +11,9 @@ DevVoice is a voice-native developer experience agent MVP for hackathons. It com
 - **File upload and parsing** for txt, md, pdf, json, and code files
 - **Chunking + embedding + vector storage** pipeline
 - **Qdrant integration** with local in-memory fallback
-- **Session memory continuity** across turns (browser localStorage + server state)
+- **Session memory continuity** across turns (browser localStorage + visitor-scoped server state)
+- **Anonymous visitor isolation** for temporary server sessions and knowledge retrieval
+- **Idempotent knowledge indexing** so repeated demo seeding does not duplicate chunks
 - **Mock mode** for no-key demo readiness
 - **Comprehensive seed data** with 7 debugging scenarios and 40+ chunks
 - **Error boundaries** and loading states for robustness
@@ -58,9 +60,9 @@ src/
     embeddings.ts           # Local + OpenAI embeddings with fallback
     file-parser.ts          # PDF/MD/JSON/code parsing
     llm.ts                  # LLM response generation with mock fallback
-    memory-store.ts         # In-memory session store
+    memory-store.ts         # Visitor-scoped in-memory session store
     mock.ts                 # Developer-oriented mock responses
-    qdrant.ts               # Vector DB client + local fallback
+    qdrant.ts               # Visitor-scoped vector DB client + local fallback
     rag.ts                  # RAG ingestion + retrieval pipeline
     seed-contexts.ts        # 7 comprehensive debugging scenarios
     storage.ts              # Browser localStorage session persistence
@@ -147,6 +149,7 @@ QDRANT_URL=                             # Optional: remote vector DB
 QDRANT_API_KEY=
 QDRANT_COLLECTION=devvoice_context
 MAX_CONTEXT_CHUNKS=6
+DEVVOICE_VISITOR_SECRET=             # Recommended stable secret for anonymous server isolation
 NEXT_PUBLIC_VAPI_PUBLIC_KEY=            # Optional: real voice agent
 ```
 
@@ -168,6 +171,7 @@ NEXT_PUBLIC_VAPI_PUBLIC_KEY=            # Optional: real voice agent
 ### RAG pipeline
 
 - Intelligent chunking (900 chars, 120-char overlap)
+- Stable content-derived point IDs for idempotent re-ingestion
 - Multi-format parsing (PDF, Markdown, JSON, code, plain text)
 - Local embeddings fallback when API keys absent
 - Qdrant + local in-memory vector store fallback
@@ -175,11 +179,16 @@ NEXT_PUBLIC_VAPI_PUBLIC_KEY=            # Optional: real voice agent
 
 ### Session management
 
-- In-memory server-side store (6 hours, auto-expire)
+- In-memory server-side store with a signed anonymous visitor cookie
 - Browser localStorage for UI persistence
-- Automatic session creation on first message
+- Automatic session creation on first message; stale or foreign IDs are safely remapped
 - Session title inferred from first user query
 - Retrieved context preserved per turn
+- In-memory sessions and fallback knowledge are process-local and temporary; durable multi-device continuity still requires a database and authentication layer
+
+### Privacy and deployment boundaries
+
+The public demo does not require login. API routes issue a signed, `HttpOnly` visitor cookie and scope temporary sessions and fallback knowledge retrieval to that visitor. Set `DEVVOICE_VISITOR_SECRET` to a stable random value in production so restarts do not invalidate the signing key unexpectedly. This is an anonymous isolation boundary, not a substitute for durable user accounts or database-backed authorization. Qdrant deployments should preserve the visitor filter when storing shared points.
 
 ### Error handling
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { ChatTurn, SessionRecord, SessionSummary } from "@/lib/types";
 
-const sessions = new Map<string, SessionRecord>();
+const sessions = new Map<string, SessionRecord & { visitorId: string }>();
 
 function inferTitle(input: string): string {
   const compact = input.replace(/\s+/g, " ").trim();
@@ -9,14 +9,17 @@ function inferTitle(input: string): string {
   return compact.length > 48 ? `${compact.slice(0, 48)}...` : compact;
 }
 
-export function ensureSession(sessionId?: string, seedText?: string): SessionRecord {
-  if (sessionId && sessions.has(sessionId)) {
-    return sessions.get(sessionId)!;
+export function ensureSession(visitorId: string, sessionId?: string, seedText?: string): SessionRecord {
+  const existing = sessionId ? sessions.get(sessionId) : undefined;
+  if (existing && existing.visitorId === visitorId) {
+    return existing;
   }
-  const id = sessionId ?? randomUUID();
+
+  const id = randomUUID();
   const now = new Date().toISOString();
-  const session: SessionRecord = {
+  const session: SessionRecord & { visitorId: string } = {
     id,
+    visitorId,
     title: inferTitle(seedText ?? ""),
     createdAt: now,
     updatedAt: now,
@@ -26,14 +29,17 @@ export function ensureSession(sessionId?: string, seedText?: string): SessionRec
   return session;
 }
 
-export function appendTurn(sessionId: string, turn: ChatTurn) {
-  const session = ensureSession(sessionId);
+export function appendTurn(visitorId: string, sessionId: string, turn: ChatTurn) {
+  const session = sessions.get(sessionId);
+  if (!session || session.visitorId !== visitorId) return false;
   session.turns.push(turn);
   session.updatedAt = new Date().toISOString();
+  return true;
 }
 
-export function listSessionSummaries(): SessionSummary[] {
+export function listSessionSummaries(visitorId: string): SessionSummary[] {
   return [...sessions.values()]
+    .filter((session) => session.visitorId === visitorId)
     .map((session) => {
       const assistantMessages = session.turns.filter((turn) => turn.role === "assistant");
       const lastAssistantMessage = assistantMessages.at(-1)?.content ?? "No assistant response yet.";
@@ -48,6 +54,7 @@ export function listSessionSummaries(): SessionSummary[] {
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
-export function getSessionTurns(sessionId: string): ChatTurn[] {
-  return ensureSession(sessionId).turns;
+export function getSessionTurns(visitorId: string, sessionId: string): ChatTurn[] {
+  const session = sessions.get(sessionId);
+  return session?.visitorId === visitorId ? session.turns : [];
 }

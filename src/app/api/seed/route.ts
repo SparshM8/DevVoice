@@ -1,4 +1,5 @@
 ﻿import { ingestKnowledge } from "@/lib/rag";
+import { chunkText } from "@/lib/chunker";
 import { seedContexts } from "@/lib/seed-contexts";
 import { checkRateLimit, getRequestMeta, jsonResponse, logApiError } from "@/lib/api";
 
@@ -19,15 +20,15 @@ export async function POST(request: Request) {
         error: "Seed endpoint rate limit exceeded.",
         requestId: meta.requestId,
       },
-      { status: 429, requestId: meta.requestId, headers: limiter.headers }
+      { status: 429, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 
   try {
     let total = 0;
     for (const doc of seedContexts) {
-      const result = await ingestKnowledge(doc);
-      total += result.chunksStored;
+      const result = await ingestKnowledge({ ...doc, visitorId: meta.visitorId });
+      total += result.chunksCreated;
     }
 
     return jsonResponse(
@@ -35,8 +36,9 @@ export async function POST(request: Request) {
         requestId: meta.requestId,
         seededDocuments: seedContexts.length,
         chunksStored: total,
+        chunksRequested: seedContexts.reduce((sum, doc) => sum + chunkText(doc.text).length, 0),
       },
-      { requestId: meta.requestId, headers: limiter.headers }
+      { requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   } catch (error) {
     logApiError({ requestId: meta.requestId, route: meta.route, error });
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
         error: "Failed to seed knowledge base.",
         requestId: meta.requestId,
       },
-      { status: 500, requestId: meta.requestId, headers: limiter.headers }
+      { status: 500, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 }

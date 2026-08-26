@@ -15,7 +15,7 @@ export function GET(request: Request) {
   if (!limiter.allowed) {
     return jsonResponse(
       { error: "Rate limit exceeded.", requestId: meta.requestId },
-      { status: 429, requestId: meta.requestId, headers: limiter.headers }
+      { status: 429, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 
@@ -23,9 +23,9 @@ export function GET(request: Request) {
     return jsonResponse(
       {
         requestId: meta.requestId,
-        sessions: listSessionSummaries(),
+        sessions: listSessionSummaries(meta.visitorId),
       },
-      { requestId: meta.requestId, headers: limiter.headers }
+      { requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   } catch (error) {
     logApiError({ requestId: meta.requestId, route: meta.route, error });
@@ -34,7 +34,7 @@ export function GET(request: Request) {
         error: "Failed to load session history.",
         requestId: meta.requestId,
       },
-      { status: 500, requestId: meta.requestId, headers: limiter.headers }
+      { status: 500, requestId: meta.requestId, headers: limiter.headers, visitorCookie: meta.visitorCookie }
     );
   }
 }

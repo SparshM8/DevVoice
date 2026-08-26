@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "crypto";
+﻿import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 
 type RateBucket = {
@@ -13,7 +13,41 @@ type RateLimitResult = {
   headers: Record<string, string>;
 };
 
+type RequestMeta = {
+  requestId: string;
+  ip: string;
+  route: string;
+  visitorId: string;
+  visitorCookie?: string;
+};
+
 const rateBuckets = new Map<string, RateBucket>();
+const visitorCookieName = "devvoice_visitor";
+const visitorCookieMaxAge = 60 * 60 * 24 * 365;
+const visitorSecret = process.env.DEVVOICE_VISITOR_SECRET?.trim() || randomUUID();
+
+function signVisitorId(visitorId: string): string {
+  return createHmac("sha256", visitorSecret).update(visitorId).digest("base64url");
+}
+
+function isValidVisitorId(visitorId: string, signature: string): boolean {
+  if (!/^[0-9a-f-]{36}$/i.test(visitorId) || !signature) return false;
+  const expected = Buffer.from(signVisitorId(visitorId));
+  const actual = Buffer.from(signature);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function readCookie(request: Request, name: string): string | undefined {
+  const header = request.headers.get("cookie");
+  if (!header) return undefined;
+  const match = header.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  return match?.slice(name.length + 1);
+}
+
+function buildVisitorCookie(visitorId: string, request: Request): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${visitorCookieName}=${visitorId}.${signVisitorId(visitorId)}; Path=/; Max-Age=${visitorCookieMaxAge}; HttpOnly; SameSite=Lax${secure}`;
+}
 
 export function getClientIp(request: Request): string {
   const forwardedFor = request.headers.get("x-forwarded-for");
@@ -29,11 +63,18 @@ export function getClientIp(request: Request): string {
   return "unknown";
 }
 
-export function getRequestMeta(request: Request, route: string) {
+export function getRequestMeta(request: Request, route: string): RequestMeta {
+  const rawVisitor = readCookie(request, visitorCookieName);
+  const [visitorId, signature] = rawVisitor?.split(".") ?? [];
+  const valid = Boolean(visitorId && signature && isValidVisitorId(visitorId, signature));
+  const resolvedVisitorId = valid ? visitorId : randomUUID();
+
   return {
     requestId: randomUUID(),
     ip: getClientIp(request),
     route,
+    visitorId: resolvedVisitorId,
+    visitorCookie: valid ? undefined : buildVisitorCookie(resolvedVisitorId, request),
   };
 }
 
@@ -94,6 +135,7 @@ export function jsonResponse<T>(
     status?: number;
     requestId?: string;
     headers?: Record<string, string>;
+    visitorCookie?: string;
   }
 ) {
   const response = NextResponse.json(body, { status: options?.status ?? 200 });
@@ -106,6 +148,10 @@ export function jsonResponse<T>(
     for (const [name, value] of Object.entries(options.headers)) {
       response.headers.set(name, value);
     }
+  }
+
+  if (options?.visitorCookie) {
+    response.headers.set("Set-Cookie", options.visitorCookie);
   }
 
   return response;
