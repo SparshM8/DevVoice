@@ -1,24 +1,9 @@
 ﻿import { parseFileContent } from "@/lib/file-parser";
 import { ingestKnowledge } from "@/lib/rag";
+import { validateUpload } from "@/lib/upload-validation";
 import { checkRateLimit, getRequestMeta, jsonResponse, logApiError } from "@/lib/api";
 
 export const runtime = "nodejs";
-
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set([
-  "txt",
-  "md",
-  "pdf",
-  "json",
-  "js",
-  "jsx",
-  "ts",
-  "tsx",
-  "py",
-  "java",
-  "go",
-  "log",
-]);
 
 export async function POST(request: Request) {
   const meta = getRequestMeta(request, "api/upload");
@@ -50,24 +35,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const extension = file.name.toLowerCase().split(".").pop() ?? "";
-    if (!ALLOWED_EXTENSIONS.has(extension)) {
+    const validation = validateUpload(file);
+    if (!validation.ok) {
       return jsonResponse(
-        {
-          error: `Unsupported file type .${extension || "unknown"}.`,
-          requestId: meta.requestId,
-        },
-        { status: 400, requestId: meta.requestId, headers: limiter.headers }
-      );
-    }
-
-    if (file.size > MAX_UPLOAD_BYTES) {
-      return jsonResponse(
-        {
-          error: `File too large. Max size is ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))}MB.`,
-          requestId: meta.requestId,
-        },
-        { status: 413, requestId: meta.requestId, headers: limiter.headers }
+        { error: validation.message, requestId: meta.requestId },
+        { status: validation.status, requestId: meta.requestId, headers: limiter.headers }
       );
     }
 

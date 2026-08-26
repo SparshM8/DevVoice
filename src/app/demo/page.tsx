@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { TopNav } from "@/components/layout/TopNav";
 
@@ -53,6 +54,40 @@ const DEMO_PROMPTS: DemoPrompt[] = [
 ];
 
 export default function DemoPage() {
+  const [seedState, setSeedState] = useState<{
+    kind: "idle" | "loading" | "success" | "error";
+    message: string;
+  }>({ kind: "idle", message: "" });
+
+  const seedDemoData = async () => {
+    setSeedState({ kind: "loading", message: "Seeding demo context..." });
+
+    try {
+      const response = await fetch("/api/seed", { method: "POST" });
+      const data = (await response.json().catch(() => ({}))) as {
+        chunksStored?: number;
+        seededDocuments?: number;
+        error?: string;
+        requestId?: string;
+      };
+
+      if (!response.ok) {
+        const requestSuffix = data.requestId ? ` Request ID: ${data.requestId}.` : "";
+        throw new Error(`${data.error ?? "Seed failed."}${requestSuffix}`);
+      }
+
+      setSeedState({
+        kind: "success",
+        message: `Seeded ${data.seededDocuments ?? 0} documents and ${data.chunksStored ?? 0} chunks.`,
+      });
+    } catch (error) {
+      setSeedState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Seed failed. Please retry.",
+      });
+    }
+  };
+
   const grouped = DEMO_PROMPTS.reduce(
     (acc, p) => {
       const cat = p.category;
@@ -81,7 +116,7 @@ export default function DemoPage() {
               {
                 num: 1,
                 title: "Seed Demo Data",
-                desc: "Click 'Seed Data' button below or run: curl -X POST http://localhost:3000/api/seed",
+                desc: "Click 'Seed Demo Data' below. It uses the current deployment and reports the indexed document/chunk count.",
               },
               {
                 num: 2,
@@ -117,17 +152,22 @@ export default function DemoPage() {
           </ol>
 
           <button
-            onClick={() => {
-              fetch("/api/seed", { method: "POST" })
-                .then((r) => r.json())
-                .then((data) => alert(`Seeded ${data.chunksStored} chunks!`))
-                .catch(() => alert("Seed failed"));
-            }}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-neon-mint px-4 py-2 font-medium text-ink-950 hover:bg-emerald-300"
+            type="button"
+            onClick={() => void seedDemoData()}
+            disabled={seedState.kind === "loading"}
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-neon-mint px-4 py-2 font-medium text-ink-950 hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
           >
-            Seed Demo Data
+            {seedState.kind === "loading" ? "Seeding..." : "Seed Demo Data"}
             <ChevronRight className="h-4 w-4" />
           </button>
+          {seedState.kind !== "idle" ? (
+            <p
+              role="status"
+              className={`mt-3 text-sm ${seedState.kind === "error" ? "text-red-300" : seedState.kind === "success" ? "text-emerald-300" : "text-slate-300"}`}
+            >
+              {seedState.message}
+            </p>
+          ) : null}
         </section>
 
         <section>

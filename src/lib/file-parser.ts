@@ -1,5 +1,3 @@
-import { PDFParse } from "pdf-parse";
-
 const CODE_EXTENSIONS = new Set(["js", "jsx", "ts", "tsx", "py", "java", "go", "rs", "c", "cpp", "log"]);
 
 export async function parseFileContent(file: File): Promise<{ text: string; type: string }> {
@@ -7,6 +5,7 @@ export async function parseFileContent(file: File): Promise<{ text: string; type
   const extension = name.split(".").pop() ?? "txt";
 
   if (extension === "pdf") {
+    const { PDFParse } = await import("pdf-parse");
     const buffer = Buffer.from(await file.arrayBuffer());
     const parser = new PDFParse({ data: buffer });
     const parsed = await parser.getText();

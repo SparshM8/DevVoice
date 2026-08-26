@@ -18,6 +18,7 @@ function toSummary(session: SessionRecord): SessionSummary {
     updatedAt: session.updatedAt,
     turnCount: session.turns.length,
     lastAssistantMessage: assistantMessages.at(-1)?.content ?? "No assistant response yet.",
+    source: "local",
   };
 }
 
@@ -32,7 +33,10 @@ export default function HistoryPage() {
     void fetch("/api/history")
       .then((res) => res.json())
       .then((data) => {
-        const remote: SessionSummary[] = data.sessions ?? [];
+        const remote: SessionSummary[] = (data.sessions ?? []).map((session: SessionSummary) => ({
+          ...session,
+          source: "remote",
+        }));
         const merged = [...remote];
         for (const localItem of local) {
           if (!merged.some((item) => item.id === localItem.id)) {
@@ -121,29 +125,39 @@ export default function HistoryPage() {
           <div className="mt-6 grid gap-3">
             {filteredSessions.map((session) => (
               <article key={session.id} className="glass rounded-2xl p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="font-medium text-white">{session.title}</h2>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-medium text-white">{session.title}</h2>
+                    <span className={`mt-2 inline-flex rounded-full border px-2 py-1 text-[10px] uppercase tracking-wide ${session.source === "local" ? "border-emerald-700/60 text-emerald-200" : "border-ink-700 text-slate-400"}`}>
+                      {session.source === "local" ? "Browser saved" : "Server summary"}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full border border-ink-700 px-3 py-1 text-xs text-slate-300">
                       {session.turnCount} turns
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => duplicateSavedSession(session.id)}
-                      className="rounded-full border border-amber-700/60 px-3 py-1 text-xs uppercase tracking-wide text-amber-200 transition hover:border-amber-500 hover:text-amber-100"
-                    >
-                      Duplicate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteSavedSession(session.id)}
-                      className="rounded-full border border-red-900/60 px-3 py-1 text-xs uppercase tracking-wide text-red-200 transition hover:border-red-700 hover:text-red-100"
-                    >
-                      Delete
-                    </button>
+                    {session.source === "local" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => duplicateSavedSession(session.id)}
+                          className="rounded-full border border-amber-700/60 px-3 py-1 text-xs uppercase tracking-wide text-amber-200 transition hover:border-amber-500 hover:text-amber-100"
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteSavedSession(session.id)}
+                          className="rounded-full border border-red-900/60 px-3 py-1 text-xs uppercase tracking-wide text-red-200 transition hover:border-red-700 hover:text-red-100"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
                 <p className="mt-2 text-sm text-slate-300">Updated {new Date(session.updatedAt).toLocaleString()}</p>
+                {session.source === "remote" ? <p className="mt-1 text-xs text-slate-500">Server summaries are temporary and cannot be edited here.</p> : null}
                 <p className="mt-3 text-sm text-slate-200">{session.lastAssistantMessage}</p>
               </article>
             ))}

@@ -31,4 +31,5 @@ export type SessionSummary = {
   updatedAt: string;
   turnCount: number;
   lastAssistantMessage: string;
+  source?: "local" | "remote";
 };
