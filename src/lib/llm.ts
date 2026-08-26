@@ -1,6 +1,7 @@
 import { config, hasExternalLlmConfig } from "@/lib/config";
 import { ChatTurn, RetrievedChunk } from "@/lib/types";
 import { mockDeveloperAnswer } from "@/lib/mock";
+import { recordExternalLlmFailure, recordExternalLlmSuccess } from "@/lib/llm-health";
 import { readLocalFile, runTerminalCommand } from "./tools";
 
 const tools = [
@@ -77,8 +78,12 @@ async function callOpenAiNonStream(messages: OpenAIMessage[]) {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.statusText}`);
+    const error = new Error(`OpenAI API error: ${response.statusText}`);
+    recordExternalLlmFailure(error);
+    throw error;
   }
+
+  recordExternalLlmSuccess();
   return response.json();
 }
 
@@ -103,8 +108,12 @@ async function* callOpenAiStream(messages: OpenAIMessage[]): AsyncGenerator<stri
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI Stream Error: ${response.statusText}`);
+      const error = new Error(`OpenAI Stream Error: ${response.statusText}`);
+      recordExternalLlmFailure(error);
+      throw error;
     }
+
+    recordExternalLlmSuccess();
 
     if (!response.body) throw new Error("No response body");
 
@@ -165,7 +174,8 @@ export async function* generateDeveloperResponseStream(params: {
   ];
 
   const maxLoops = 3;
-  for (let i = 0; i < maxLoops; i++) {
+  try {
+    for (let i = 0; i < maxLoops; i++) {
     yield { type: "action", message: "Thinking..." };
     
     // Non-streaming call to get tool calls or text
@@ -222,6 +232,21 @@ export async function* generateDeveloperResponseStream(params: {
     }
   }
 
-  yield "\n\n(Agent stopped after maximum tool iterations)";
-  return { suggestions: ["Try breaking down your request"] };
+    yield "\n\n(Agent stopped after maximum tool iterations)";
+    return { suggestions: ["Try breaking down your request"] };
+  } catch (error) {
+    recordExternalLlmFailure(error);
+    yield { type: "action", message: "External LLM unavailable. Switching to mock fallback..." };
+    const mock = await mockDeveloperAnswer(params.message);
+    for (const word of mock.answer.split(" ")) {
+      yield word + " ";
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return {
+      suggestions: [
+        ...mock.suggestions,
+        "Check the external LLM credentials before switching back to live mode.",
+      ],
+    };
+  }
 }
